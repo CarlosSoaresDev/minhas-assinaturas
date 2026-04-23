@@ -1,0 +1,154 @@
+// ============================================================
+// Gerenciador de Assinaturas — Estilos Globais
+// Bootstrap 5.3 Dark Mode + Customizações
+// ============================================================
+
+// Google Fonts — Inter
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+// ----------------------------------------------------------
+// 1. Variáveis de override do Bootstrap (antes do import)
+// ----------------------------------------------------------
+$font-family-sans-serif: 'Inter', system-ui, -apple-system, sans-serif;
+$enable-dark-mode: true;
+$color-mode-type: data;
+
+// Paleta customizada — Emerald/Teal (Finanças/Confiança)
+$primary:   #10b981; // Emerald 500
+$secondary: #0ea5e9; // Sky 500
+$success:   #22c55e;
+$warning:   #f59e0b;
+$danger:    #ef4444;
+$info:      #06b6d4;
+
+// Dark mode padrão — Deep Dark (Preto puro profissional)
+$body-bg-dark: #0b0e14;
+$body-color-dark: #f1f5f9;
+
+// ----------------------------------------------------------
+// 2. Bootstrap core
+// ----------------------------------------------------------
+@import 'bootstrap/scss/bootstrap';
+
+// ----------------------------------------------------------
+// 3. Bootstrap Icons
+// ----------------------------------------------------------
+@import 'bootstrap-icons/font/bootstrap-icons.css';
+
+// ----------------------------------------------------------
+// 4. Customizações globais
+// ----------------------------------------------------------
+
+// Transições suaves em todos os elementos interativos
+a, .btn, .card, .nav-link, .badge {
+    transition: all 0.2s ease-in-out;
+}
+
+// Scrollbar customizada (ajusta com o tema)
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+[data-bs-theme="dark"] ::-webkit-scrollbar-track {
+    background: #0b0e14;
+}
+
+[data-bs-theme="dark"] ::-webkit-scrollbar-thumb {
+    background: #1e293b;
+    border-radius: 4px;
+}
+
+[data-bs-theme="light"] ::-webkit-scrollbar-track {
+    background: #f8fafc;
+}
+
+[data-bs-theme="light"] ::-webkit-scrollbar-thumb {
+    background: #e2e8f0;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #10b981 !important;
+}
+
+// Cards e Tabelas
+.card {
+    border-radius: 16px;
+    border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+[data-bs-theme="dark"] {
+    .card {
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        background-color: #111827;
+    }
+    .table {
+        --bs-table-bg: transparent;
+        --bs-table-color: #f1f5f9;
+    }
+    .form-control, .form-select, .input-group-text {
+        background-color: #0b0e14;
+        border-color: #1e293b;
+        color: #f1f5f9;
+        &:focus {
+            background-color: #0f172a;
+            border-color: #10b981;
+            color: #fff;
+        }
+    }
+}
+
+[data-bs-theme="light"] {
+    .card {
+        background-color: #ffffff;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+    }
+    .table {
+        --bs-table-bg: #ffffff;
+        --bs-table-color: #1e293b;
+    }
+    .form-control, .form-select, .input-group-text {
+        background-color: #ffffff;
+        border-color: #e2e8f0;
+        color: #1e293b;
+        &:focus {
+            background-color: #ffffff;
+            border-color: #10b981;
+            color: #000;
+        }
+    }
+}
+
+// Sidebar link hover (ajustado para topbar)
+.nav-link-top:hover {
+    background-color: rgba(16, 185, 129, 0.1);
+    color: #10b981;
+}
+
+// Paginação (Bootstrap 5)
+.pagination {
+    --bs-pagination-bg: transparent;
+    --bs-pagination-border-color: var(--bs-border-color);
+    --bs-pagination-color: var(--bs-body-color);
+    --bs-pagination-hover-bg: rgba(16, 185, 129, 0.1);
+    --bs-pagination-hover-color: #10b981;
+    --bs-pagination-active-bg: #10b981;
+    --bs-pagination-active-border-color: #10b981;
+    --bs-pagination-disabled-bg: transparent;
+    --bs-pagination-disabled-border-color: var(--bs-border-color);
+    --bs-pagination-disabled-color: var(--bs-secondary-color);
+
+    // FIX: Impede que as setas SVG cresçam infinitamente
+    svg {
+        width: 1rem !important;
+        height: 1rem !important;
+        vertical-align: middle;
+    }
+}
+
+// Badge de status
+.badge-active   { background-color: #10b981; }
+.badge-expiring { background-color: #f59e0b; color: #000; }
+.badge-expired  { background-color: #ef4444; }
+.badge-paused   { background-color: #6b7280; }
+.badge-canceled { background-color: #6b7280; }
