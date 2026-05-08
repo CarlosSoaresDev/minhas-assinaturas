@@ -48,5 +48,8 @@ jobs:
           cp .env.example .env
           php artisan key:generate
 
-      - name: Run lint and tests
-        run: composer test
+      - name: Clear config cache
+        run: php artisan config:clear --ansi
+
+      - name: Run automated tests
+        run: php artisan test --ansi
