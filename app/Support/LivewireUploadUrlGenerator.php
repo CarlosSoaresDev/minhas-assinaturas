@@ -2,7 +2,6 @@
 
 namespace App\Support;
 
-use Illuminate\Support\Facades\Request;
 use Livewire\Features\SupportFileUploads\FileUploadConfiguration;
 use Livewire\Features\SupportFileUploads\GenerateSignedUploadUrl;
 use Livewire\Mechanisms\HandleRequests\EndpointResolver;
@@ -19,21 +18,7 @@ class LivewireUploadUrlGenerator extends GenerateSignedUploadUrl
 
     private function uploadUrl(): string
     {
-        return $this->origin().EndpointResolver::uploadPath();
-    }
-
-    private function origin(): string
-    {
-        if (! app()->runningInConsole() || app()->runningUnitTests()) {
-            return Request::getSchemeAndHttpHost();
-        }
-
-        $appUrl = (string) config('app.url');
-        $scheme = parse_url($appUrl, PHP_URL_SCHEME) ?: 'https';
-        $host = parse_url($appUrl, PHP_URL_HOST) ?: 'localhost';
-        $port = parse_url($appUrl, PHP_URL_PORT);
-
-        return $scheme.'://'.$host.($port ? ':'.$port : '');
+        return rtrim((string) config('app.url'), '/').EndpointResolver::uploadPath();
     }
 
     private function signature(string $url): string

@@ -112,8 +112,6 @@ class AppServiceProvider extends ServiceProvider
                         $routeName
                         && (
                             str($routeName)->endsWith('livewire.update')
-                            || $routeName === 'livewire.upload-file'
-                            || $routeName === 'livewire.preview-file'
                         )
                     ) {
                         return $forcedOrigin;
