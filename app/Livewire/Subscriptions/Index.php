@@ -4,10 +4,15 @@ namespace App\Livewire\Subscriptions;
 
 use App\Models\Category;
 use App\Models\Subscription;
+use App\Services\CacheService;
+use App\Services\ReportService;
+use App\Services\SubscriptionImportService;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Livewire\Component;
-use Livewire\WithPagination;
 use Livewire\WithFileUploads;
-use Illuminate\Support\Facades\Response;
+use Livewire\WithPagination;
 
 class Index extends Component
 {
@@ -18,17 +23,93 @@ class Index extends Component
     // protected string $paginationTheme = 'bootstrap'; // Não necessário com paginação manual
 
     public $csvFile;
+
     public $importStatus = '';
+
     public bool $ignoreDuplicates = true;
+
     public bool $showImportModal = false;
+
     public array $importSummary = [
         'total' => 0,
         'duplicates' => 0,
         'new' => 0,
     ];
+
     // public array $tempImportData = []; // Removido para evitar erro de snapshot grande
     public array $selectedIds = [];
+
     public bool $selectAll = false;
+
+    /**
+     * Neutraliza possíveis células de fórmula de planilha e remove espaços laterais.
+     */
+    private function sanitizeImportedText(?string $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $value = trim($value);
+        if ($value === '') {
+            return null;
+        }
+
+        // Prefixos iniciadores de fórmula em Excel/Sheets.
+        if (preg_match('/^[=+\-@]/', $value) === 1) {
+            return "'".$value;
+        }
+
+        return $value;
+    }
+
+    /**
+     * Aceita apenas URLs válidas com protocolo http/https.
+     */
+    private function sanitizeImportedUrl(?string $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $value = trim($value);
+        if ($value === '') {
+            return null;
+        }
+
+        $value = preg_replace('/[\x00-\x1F\x7F]/u', '', $value) ?? '';
+        if ($value === '' || filter_var($value, FILTER_VALIDATE_URL) === false) {
+            return null;
+        }
+
+        $scheme = strtolower((string) parse_url($value, PHP_URL_SCHEME));
+        if (! in_array($scheme, ['http', 'https'], true)) {
+            return null;
+        }
+
+        return $value;
+    }
+
+    /**
+     * Neutraliza células potencialmente interpretadas como fórmula no CSV exportado.
+     */
+    private function sanitizeExportText(mixed $value): string
+    {
+        $text = trim((string) ($value ?? ''));
+        if ($text === '') {
+            return '';
+        }
+
+        if (str_starts_with($text, "'")) {
+            return $text;
+        }
+
+        if (preg_match('/^[\t\r\n ]*[=+\-@]/', $text) === 1) {
+            return "'".$text;
+        }
+
+        return $text;
+    }
 
     public function updatedCsvFile()
     {
@@ -40,58 +121,110 @@ class Index extends Component
     public function prepareImport()
     {
         $this->validate([
-            'csvFile' => 'required|mimes:csv,txt|max:1024',
+            'csvFile' => 'required|extensions:csv,txt|max:1024',
         ]);
 
         $token = auth()->user()->privacyToken?->token;
-        if (!$token) return;
+        if (! $token) {
+            session()->flash('error', 'Token de privacidade nÃƒÂ£o encontrado ao preparar importaÃƒÂ§ÃƒÂ£o.');
 
-        $path = $this->csvFile->getRealPath();
-        $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-        if (empty($lines)) return;
+            return;
+        }
 
-        $delimiter = str_contains($lines[0], ';') ? ';' : ',';
-        $data = [];
-        foreach ($lines as $line) {
+        try {
+            $path = $this->csvFile->getRealPath();
+            $content = file_get_contents($path);
+
+            Log::info('CSV import prepare started', [
+                'user_id' => auth()->id(),
+                'privacy_token_prefix' => substr($token, 0, 8),
+                'original_name' => $this->csvFile->getClientOriginalName(),
+                'mime_type' => $this->csvFile->getMimeType(),
+                'size' => $this->csvFile->getSize(),
+                'real_path' => $path,
+                'path_exists' => $path ? file_exists($path) : false,
+                'path_readable' => $path ? is_readable($path) : false,
+            ]);
+
+            // Remove BOM do Excel
+            $content = preg_replace('/^\xEF\xBB\xBF/', '', $content);
+
+            // Salva em arquivo temporário para usar fgetcsv
+            $tempStream = fopen('php://temp', 'r+');
+            fwrite($tempStream, $content);
+            rewind($tempStream);
+
+            // Detecta delimitador pela primeira linha
+            $firstLine = fgets($tempStream);
+            rewind($tempStream);
+            $delimiter = str_contains($firstLine, ';') ? ';' : ',';
+
+            $data = [];
+            $header = fgetcsv($tempStream, 0, $delimiter); // Pula cabeçalho
+
+            while (($row = fgetcsv($tempStream, 0, $delimiter)) !== false) {
+                // Limpa campos vazios ou com apenas espaços que o fgetcsv pode trazer
+                if (count($row) === 1 && $row[0] === null) {
+                    continue;
+                }
+                $data[] = $row;
+            }
+            fclose($tempStream);
+
             if (empty($data)) {
-                $line = preg_replace('/^[\xef\xbb\xbf]+/', '', $line);
+                session()->flash('error', 'Nenhum dado encontrado após o cabeçalho.');
+
+                return;
             }
-            $data[] = str_getcsv($line, $delimiter);
-        }
 
-        array_shift($data); // Remove header
-        session()->put('temp_import_data_' . auth()->id(), $data);
+            session()->put('temp_import_data_'.auth()->id(), $data);
 
-        $total = count($data);
-        $namesInCsv = array_unique(array_filter(array_map(fn($row) => trim($row[0] ?? ''), $data)));
-        
-        $existingNames = Subscription::where('privacy_token', $token)
-            ->whereIn('name', $namesInCsv)
-            ->pluck('name')
-            ->map(fn($n) => strtolower($n))
-            ->toArray();
+            $total = count($data);
+            $namesInCsv = array_unique(array_filter(array_map(fn ($row) => trim($row[0] ?? ''), $data)));
 
-        $duplicates = 0;
-        foreach ($data as $row) {
-            if (count($row) >= 1 && in_array(strtolower(trim($row[0])), $existingNames)) {
-                $duplicates++;
+            $existingNames = Subscription::where('privacy_token', $token)
+                ->whereIn('name', $namesInCsv)
+                ->pluck('name')
+                ->map(fn ($n) => strtolower($n))
+                ->toArray();
+
+            $duplicates = 0;
+            foreach ($data as $row) {
+                if (! empty($row[0]) && in_array(strtolower(trim($row[0])), $existingNames)) {
+                    $duplicates++;
+                }
             }
+
+            $this->importSummary = [
+                'total' => $total,
+                'duplicates' => $duplicates,
+                'new' => $total - $duplicates,
+            ];
+
+            $this->showImportModal = true;
+        } catch (\Throwable $e) {
+            Log::error('CSV import prepare failed', [
+                'user_id' => auth()->id(),
+                'exception' => $e::class,
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+
+            session()->flash('error', 'Erro ao ler arquivo: ['.$e::class.'] '.$e->getMessage());
         }
-
-        $this->importSummary = [
-            'total' => $total,
-            'duplicates' => $duplicates,
-            'new' => $total - $duplicates,
-        ];
-
-        $this->showImportModal = true;
     }
 
     public string $search = '';
+
     public string $statusFilter = 'all';
+
     public string $categoryFilter = 'all';
+
     public string $sortColumn = 'next_billing_date';
+
     public string $sortDirection = 'asc';
+
     public int $perPage = 10;
 
     public function updatedSelectAll($value): void
@@ -100,7 +233,7 @@ class Index extends Component
             $token = auth()->user()->privacyToken?->token;
             $this->selectedIds = Subscription::byPrivacyToken($token)
                 ->pluck('id')
-                ->map(fn($id) => (string) $id)
+                ->map(fn ($id) => (string) $id)
                 ->toArray();
         } else {
             $this->selectedIds = [];
@@ -109,15 +242,17 @@ class Index extends Component
 
     public function deleteSelected(): void
     {
-        if (empty($this->selectedIds)) return;
+        if (empty($this->selectedIds)) {
+            return;
+        }
 
         $token = auth()->user()->privacyToken?->token;
         Subscription::byPrivacyToken($token)
             ->whereIn('id', $this->selectedIds)
             ->delete();
 
-        app(\App\Services\CacheService::class)->invalidateUserCache($token);
-        
+        app(CacheService::class)->invalidateUserCache($token);
+
         $count = count($this->selectedIds);
         $this->selectedIds = [];
         $this->selectAll = false;
@@ -141,10 +276,13 @@ class Index extends Component
     }
 
     public bool $showFormModal = false;
+
     public bool $showDeleteModal = false;
-    
+
     public ?string $editingId = null;
+
     public ?string $deletingId = null;
+
     public string $deletingName = '';
 
     public function gotoPage($page)
@@ -171,23 +309,41 @@ class Index extends Component
 
     // Form fields
     public string $name = '';
+
     public ?int $category_id = null;
+
     public bool $isCreatingCategory = false;
+
     public string $newCategoryName = '';
+
     public string $newCategoryColor = '#0F6CBD';
+
     public string $selectedCategoryColor = '#0F6CBD';
+
     public string $billing_cycle = 'monthly';
+
     public ?int $custom_cycle_interval = null;
+
     public string $custom_cycle_period = 'months';
+
     public string $amount = '';
+
     public string $currency = 'BRL';
+
     public string $start_date = '';
+
     public string $next_billing_date = '';
+
     public string $status = 'active';
+
     public ?string $cancelled_at = null;
+
     public bool $auto_renew = true;
+
     public bool $is_domain = false;
+
     public string $notes = '';
+
     public string $service_url = '';
 
     public function updatingSearch(): void
@@ -290,7 +446,7 @@ class Index extends Component
     public function openEditModal(string $id): void
     {
         $this->resetErrorBag();
-        
+
         $token = auth()->user()->privacyToken?->token;
         $subscription = Subscription::byPrivacyToken($token)->findOrFail($id);
 
@@ -310,7 +466,7 @@ class Index extends Component
         $this->is_domain = (bool) $subscription->is_domain;
         $this->notes = (string) $subscription->notes;
         $this->service_url = (string) $subscription->service_url;
-        
+
         if ($this->category_id) {
             $category = Category::find($this->category_id);
             $this->selectedCategoryColor = $category->color ?? '#0F6CBD';
@@ -328,8 +484,9 @@ class Index extends Component
     public function exportCsv()
     {
         $token = auth()->user()->privacyToken?->token;
-        if (!$token) {
+        if (! $token) {
             session()->flash('error', 'Token de privacidade não encontrado.');
+
             return;
         }
 
@@ -340,33 +497,33 @@ class Index extends Component
             'Content-Disposition' => 'attachment; filename=Minhas_Assinaturas.csv',
             'Pragma' => 'no-cache',
             'Cache-Control' => 'must-revalidate, post-check=0, pre-check=0',
-            'Expires' => '0'
+            'Expires' => '0',
         ];
 
         $callback = function () use ($subscriptions) {
             $file = fopen('php://output', 'w');
-            
+
             // Add BOM to fix UTF-8 in Excel
-            fputs($file, $bom = (chr(0xEF) . chr(0xBB) . chr(0xBF)));
+            fwrite($file, $bom = (chr(0xEF).chr(0xBB).chr(0xBF)));
 
             // Headers (Now 13 columns including all fields)
             fputcsv($file, ['Nome', 'URL', 'Valor', 'Moeda', 'Ciclo', 'Intervalo_Custom', 'Periodo_Custom', 'Categoria', 'Início', 'Vencimento', 'Status', 'Auto_Renew', 'Notas'], ';');
 
             foreach ($subscriptions as $sub) {
                 fputcsv($file, [
-                    $sub->name,
-                    $sub->service_url,
+                    $this->sanitizeExportText($sub->name),
+                    $this->sanitizeExportText($sub->service_url),
                     number_format($sub->amount, 2, ',', ''),
                     $sub->currency ?? 'BRL',
                     $sub->billing_cycle,
                     $sub->custom_cycle_interval,
                     $sub->custom_cycle_period,
-                    $sub->category->name ?? 'Sem categoria',
+                    $this->sanitizeExportText($sub->category->name ?? 'Sem categoria'),
                     $sub->start_date ? $sub->start_date->format('d/m/Y') : '',
                     $sub->next_billing_date ? $sub->next_billing_date->format('d/m/Y') : '',
                     $sub->status,
                     $sub->auto_renew ? 'Sim' : 'Não',
-                    $sub->notes
+                    $this->sanitizeExportText($sub->notes),
                 ], ';');
             }
 
@@ -380,149 +537,71 @@ class Index extends Component
 
     public function confirmImport()
     {
-        $token = auth()->user()->privacyToken?->token;
-        if (!$token) return;
+        try {
+            Log::info('confirmImport chamado');
+            $token = auth()->user()->privacyToken?->token;
+            if (! $token) {
+                Log::warning('confirmImport: Token não encontrado');
+                session()->flash('error', 'Token de privacidade não encontrado.');
+                $this->reset(['csvFile', 'showImportModal', 'importSummary']);
 
-        $importedCount = 0;
-        $skippedCount = 0;
+                return;
+            }
 
-        $tempData = session()->get('temp_import_data_' . auth()->id(), []);
+            $importedCount = 0;
+            $skippedCount = 0;
 
-        foreach ($tempData as $row) {
-            // Check if row has at least Name and Value
-            if (count($row) >= 2) {
-                $name = trim($row[0]);
-                
-                if ($this->ignoreDuplicates) {
-                    $exists = Subscription::where('privacy_token', $token)
-                        ->where('name', $name)
-                        ->exists();
-                    
-                    if ($exists) {
-                        $skippedCount++;
-                        continue;
-                    }
-                }
+            $tempData = session()->get('temp_import_data_'.auth()->id(), []);
+            Log::info('confirmImport: Registros para processar: '.count($tempData));
 
-                // Detecção inteligente do formato das colunas
-                $colsCount = count($row);
-                
-                // Se tiver 13 colunas, é o formato completo novo
-                $isFullFormat = ($colsCount >= 13);
-                $hasCurrencyColumn = ($colsCount >= 10);
-                
-                $urlIndex = $isFullFormat ? 1 : -1;
-                $valIndex = $isFullFormat ? 2 : 1;
-                $currencyIndex = $isFullFormat ? 3 : ($hasCurrencyColumn ? 2 : -1);
-                $cycleIndex = $isFullFormat ? 4 : ($hasCurrencyColumn ? 3 : 2);
-                $customIntervalIndex = $isFullFormat ? 5 : -1;
-                $customPeriodIndex = $isFullFormat ? 6 : -1;
-                $categoryIndex = $isFullFormat ? 7 : ($hasCurrencyColumn ? 4 : 3);
-                $startDateIndex = $isFullFormat ? 8 : ($hasCurrencyColumn ? 5 : 4);
-                $nextDateIndex = $isFullFormat ? 9 : ($hasCurrencyColumn ? 6 : 5);
-                $statusIndex = $isFullFormat ? 10 : ($hasCurrencyColumn ? 7 : 6);
-                $autoRenewIndex = $isFullFormat ? 11 : ($hasCurrencyColumn ? 8 : 7);
-                $notesIndex = $isFullFormat ? 12 : ($hasCurrencyColumn ? 9 : 8);
+            if (empty($tempData)) {
+                Log::warning('confirmImport: Dados temporários vazios na sessão');
+                session()->flash('error', 'Dados da importação expiraram ou não foram encontrados.');
+                $this->reset(['csvFile', 'showImportModal', 'importSummary']);
 
-                // Buscar Categoria pelo nome (ou criar se não existir)
-                $categoryName = isset($row[$categoryIndex]) ? trim($row[$categoryIndex]) : '';
-                $categoryId = null;
-                if ($categoryName && !in_array($categoryName, ['Sem categoria', ''])) {
-                    $category = \App\Models\Category::where(function($q) use ($token) {
-                            $q->where('privacy_token', $token)->orWhere('is_system', true);
-                        })
-                        ->where('name', $categoryName)
-                        ->first();
-                    
-                    if (!$category) {
-                        // Criação automática para não perder a informação da categoria
-                        $category = \App\Models\Category::create([
-                            'privacy_token' => $token,
-                            'name' => $categoryName,
-                            'slug' => \Illuminate\Support\Str::slug($categoryName . '-' . uniqid()),
-                            'color' => sprintf('#%06X', mt_rand(0, 0xFFFFFF)),
-                            'icon' => 'bi-tag',
-                            'is_system' => false,
-                        ]);
-                    }
-                    $categoryId = $category?->id;
-                }
+                return;
+            }
 
-                $currency = 'BRL';
-                if ($currencyIndex !== -1 && !empty(trim($row[$currencyIndex] ?? ''))) {
-                    $currency = strtoupper(trim($row[$currencyIndex]));
-                }
+            $importService = app(SubscriptionImportService::class);
 
-                // Processar Datas
-                $startDate = now();
-                if (!empty($row[$startDateIndex] ?? '')) {
-                    try {
-                        $startDate = \Carbon\Carbon::createFromFormat('d/m/Y', trim($row[$startDateIndex]));
-                    } catch (\Exception $e) { $startDate = now(); }
-                }
-
-                $nextDate = $startDate->copy()->addMonth();
-                if (!empty($row[$nextDateIndex] ?? '')) {
-                    try {
-                        $nextDate = \Carbon\Carbon::createFromFormat('d/m/Y', trim($row[$nextDateIndex]));
-                    } catch (\Exception $e) { $nextDate = $startDate->copy()->addMonth(); }
-                }
-
-                // Processar Auto Renew
-                $autoRenew = true;
-                $autoRenewStr = strtolower(trim($row[$autoRenewIndex] ?? 'sim'));
-                if ($autoRenewStr === 'não' || $autoRenewStr === 'nao' || $autoRenewStr === 'no') {
-                    $autoRenew = false;
-                }
-
-                // Processar Cancelamento
-                $status = strtolower(trim($row[$statusIndex] ?? 'active'));
-                $cancelledAt = null;
-                if (in_array($status, ['cancelled', 'cancelada', 'inativa', 'inactive'])) {
-                    $cancelledAt = $nextDate;
-                }
-
+            foreach ($tempData as $row) {
                 try {
-                    Subscription::create([
-                        'privacy_token' => $token,
-                        'category_id' => $categoryId,
-                        'name' => $name,
-                        'service_url' => $urlIndex !== -1 ? trim($row[$urlIndex] ?? '') : null,
-                        'amount' => (float) str_replace(',', '.', $row[$valIndex] ?? 0),
-                        'currency' => $currency,
-                        'billing_cycle' => $row[$cycleIndex] ?? 'monthly',
-                        'custom_cycle_interval' => $customIntervalIndex !== -1 ? (int) ($row[$customIntervalIndex] ?? null) : null,
-                        'custom_cycle_period' => $customPeriodIndex !== -1 ? trim($row[$customPeriodIndex] ?? '') : null,
-                        'start_date' => $startDate,
-                        'next_billing_date' => $nextDate,
-                        'status' => $status,
-                        'cancelled_at' => $cancelledAt,
-                        'auto_renew' => $autoRenew,
-                        'notes' => isset($row[$notesIndex]) ? trim($row[$notesIndex]) : null,
-                    ]);
-                    $importedCount++;
+                    $result = $importService->importRow($token, $row, $this->ignoreDuplicates);
+
+                    if ($result['status'] === 'imported') {
+                        $importedCount++;
+                    } else {
+                        $skippedCount++;
+                    }
                 } catch (\Exception $e) {
+                    Log::error('Erro ao importar linha: '.$e->getMessage());
                     $skippedCount++;
                 }
             }
-        }
 
-        $message = "{$importedCount} assinaturas importadas.";
-        if ($skippedCount > 0) {
-            $message .= " {$skippedCount} falhas ou duplicadas ignoradas.";
-        }
+            $message = "{$importedCount} assinaturas importadas.";
+            if ($skippedCount > 0) {
+                $message .= " {$skippedCount} falhas ou duplicadas ignoradas.";
+            }
 
-        $this->importStatus = $message;
-        app(\App\Services\CacheService::class)->invalidateUserCache($token);
-        
-        session()->forget('temp_import_data_' . auth()->id());
-        $this->reset(['csvFile', 'showImportModal', 'importSummary']);
-        session()->flash('success', $this->importStatus);
+            $this->importStatus = $message;
+            app(CacheService::class)->invalidateUserCache($token);
+
+            session()->forget('temp_import_data_'.auth()->id());
+            $this->reset(['csvFile', 'showImportModal', 'importSummary']);
+            session()->flash('success', $this->importStatus);
+            Log::info('confirmImport finalizado: '.$message);
+        } catch (\Throwable $e) {
+            Log::error('Erro fatal no confirmImport: '.$e->getMessage());
+            session()->flash('error', 'Ocorreu um erro crítico na importação: '.$e->getMessage());
+            $this->reset(['csvFile', 'showImportModal', 'importSummary']);
+        }
     }
 
     public function cancelImport()
     {
-        session()->forget('temp_import_data_' . auth()->id());
+        Log::info('cancelImport chamado');
+        session()->forget('temp_import_data_'.auth()->id());
         $this->reset(['csvFile', 'showImportModal', 'importSummary']);
     }
 
@@ -532,38 +611,39 @@ class Index extends Component
             $data = $this->validate();
 
             $token = auth()->user()->privacyToken?->token;
-            
+
             if (! $token) {
                 session()->flash('error', 'Token de privacidade inválido.');
+
                 return;
             }
 
             // Limpeza de campos vazios para evitar erro de formato SQL
-            $data['next_billing_date'] = !empty($data['next_billing_date']) ? $data['next_billing_date'] : null;
-            $data['cancelled_at'] = !empty($data['cancelled_at']) ? $data['cancelled_at'] : null;
-            $data['custom_cycle_interval'] = !empty($data['custom_cycle_interval']) ? $data['custom_cycle_interval'] : null;
-            $data['custom_cycle_period'] = !empty($data['custom_cycle_period']) ? $data['custom_cycle_period'] : null;
+            $data['next_billing_date'] = ! empty($data['next_billing_date']) ? $data['next_billing_date'] : null;
+            $data['cancelled_at'] = ! empty($data['cancelled_at']) ? $data['cancelled_at'] : null;
+            $data['custom_cycle_interval'] = ! empty($data['custom_cycle_interval']) ? $data['custom_cycle_interval'] : null;
+            $data['custom_cycle_period'] = ! empty($data['custom_cycle_period']) ? $data['custom_cycle_period'] : null;
 
             if ($this->isCreatingCategory) {
                 $category = Category::create([
                     'privacy_token' => $token,
                     'name' => $data['newCategoryName'],
-                    'slug' => \Illuminate\Support\Str::slug($data['newCategoryName'] . '-' . uniqid()),
+                    'slug' => Str::slug($data['newCategoryName'].'-'.uniqid()),
                     'color' => $data['newCategoryColor'],
                     'icon' => 'bi-tag',
                     'is_system' => false,
                 ]);
                 $data['category_id'] = $category->id;
                 unset($data['newCategoryName'], $data['newCategoryColor']);
-            } else if ($this->category_id) {
+            } elseif ($this->category_id) {
                 // Atualiza a cor da categoria existente se for uma categoria do próprio usuário
                 $category = Category::where('id', $this->category_id)
-                                    ->where('privacy_token', $token)
-                                    ->first();
-                
+                    ->where('privacy_token', $token)
+                    ->first();
+
                 if ($category && $category->color !== $this->selectedCategoryColor) {
                     $category->update(['color' => $this->selectedCategoryColor]);
-                    app(\App\Services\CacheService::class)->invalidateUserCache($token);
+                    app(CacheService::class)->invalidateUserCache($token);
                 }
             }
 
@@ -581,16 +661,16 @@ class Index extends Component
                 session()->flash('success', 'Assinatura criada com sucesso!');
             }
 
-            app(\App\Services\CacheService::class)->invalidateUserCache($token);
+            app(CacheService::class)->invalidateUserCache($token);
 
             $this->showFormModal = false;
             $this->resetForm();
-            
-        } catch (\Illuminate\Validation\ValidationException $e) {
+
+        } catch (ValidationException $e) {
             throw $e; // Deixa o Livewire lidar com erros de validação
         } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error("Erro ao salvar assinatura: " . $e->getMessage());
-            session()->flash('error', 'Ocorreu um erro inesperado ao salvar: ' . $e->getMessage());
+            Log::error('Erro ao salvar assinatura: '.$e->getMessage());
+            session()->flash('error', 'Ocorreu um erro inesperado ao salvar: '.$e->getMessage());
         }
     }
 
@@ -598,7 +678,7 @@ class Index extends Component
     {
         $token = auth()->user()->privacyToken?->token;
         $subscription = Subscription::byPrivacyToken($token)->findOrFail($id);
-        
+
         $this->deletingId = $subscription->id;
         $this->deletingName = $subscription->name;
         $this->showDeleteModal = true;
@@ -617,8 +697,8 @@ class Index extends Component
             $token = auth()->user()->privacyToken?->token;
             $subscription = Subscription::byPrivacyToken($token)->findOrFail($this->deletingId);
             $subscription->delete();
-            
-            app(\App\Services\CacheService::class)->invalidateUserCache($token);
+
+            app(CacheService::class)->invalidateUserCache($token);
 
             session()->flash('success', 'Assinatura excluída com sucesso!');
         }
@@ -656,14 +736,14 @@ class Index extends Component
     {
         $token = auth()->user()->privacyToken?->token;
         if ($token) {
-            app(\App\Services\ReportService::class)->syncSubscriptions($token);
+            app(ReportService::class)->syncSubscriptions($token);
         }
-        
+
         $query = Subscription::query()
             ->byPrivacyToken($token)
             ->with('category')
             ->when($this->search !== '', function ($q) {
-                $q->where('name', 'like', '%' . trim($this->search) . '%');
+                $q->where('name', 'like', '%'.trim($this->search).'%');
             });
 
         if ($this->categoryFilter !== 'all' && $this->categoryFilter !== 'none') {
@@ -684,11 +764,11 @@ class Index extends Component
 
         return view('livewire.subscriptions.index', [
             'subscriptions' => $subscriptions,
-            'categories' => Category::where(function($q) use ($token) {
+            'categories' => Category::where(function ($q) use ($token) {
                 $q->where('privacy_token', $token)->orWhere('is_system', true);
             })->get(),
             'totalPages' => ceil($total / $this->perPage),
-            'totalRecords' => $total
+            'totalRecords' => $total,
         ]);
     }
 }

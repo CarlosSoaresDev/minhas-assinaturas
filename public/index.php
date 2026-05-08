@@ -5,6 +5,16 @@ use Illuminate\Http\Request;
 
 define('LARAVEL_START', microtime(true));
 
+// Strip subdirectory prefix so Laravel routes work correctly
+// Remove this block if the app is moved to the domain root
+$subdir = '/projetos/minhas-assinaturas';
+if (isset($_SERVER['REQUEST_URI']) && str_starts_with($_SERVER['REQUEST_URI'], $subdir)) {
+    $_SERVER['REQUEST_URI'] = substr($_SERVER['REQUEST_URI'], strlen($subdir)) ?: '/';
+}
+if (isset($_SERVER['PATH_INFO']) && str_starts_with($_SERVER['PATH_INFO'], $subdir)) {
+    $_SERVER['PATH_INFO'] = substr($_SERVER['PATH_INFO'], strlen($subdir)) ?: '/';
+}
+
 // Determine if the application is in maintenance mode...
 if (file_exists($maintenance = __DIR__.'/../storage/framework/maintenance.php')) {
     require $maintenance;

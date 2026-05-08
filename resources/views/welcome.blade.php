@@ -6,6 +6,7 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
 
     <title>Minhas Assinaturas | Gerenciamento e Controle de Assinaturas Digitais</title>
+    <link rel="icon" type="image/png" href="{{ asset('favicon.png') }}">
     <meta name="description" content="Controle todas as suas assinaturas digitais em um só lugar. Receba alertas de vencimento, veja gráficos de gastos e economize dinheiro evitando renovações automáticas esquecidas.">
     <meta name="keywords" content="gerenciamento de assinaturas, controle financeiro, assinaturas digitais, alertas de vencimento, economia, streaming, domínios">
     <meta name="author" content="Minhas Assinaturas">
@@ -33,6 +34,7 @@
 
     <!-- CSS e JS Compilado (Bootstrap + Icons) -->
     @vite(['resources/css/app.scss', 'resources/js/app.js'])
+    {{-- @livewireStyles removido: inject_assets=true já injeta automaticamente --}}
 
     <style>
         body {
@@ -259,7 +261,11 @@
                             </li>
                             @if (Route::has('register'))
                                 <li class="nav-item">
-                                    <a href="{{ route('register') }}" class="btn btn-primary px-4 fw-semibold" style="border-radius: 50px;">Criar Conta</a>
+                                    @if(Route::has('register'))
+                                        <a href="{{ route('register') }}" class="btn btn-primary px-4 fw-semibold" style="border-radius: 50px;">Criar Conta</a>
+                                    @else
+                                        <button type="button" class="btn btn-outline-primary px-4 fw-semibold" style="border-radius: 50px;" data-bs-toggle="modal" data-bs-target="#accessRequestModal">Solicitar Acesso</button>
+                                    @endif
                                 </li>
                             @endif
                         @endauth
@@ -279,9 +285,15 @@
                         Rastreie vencimentos, licenças de software, serviços de streaming e muito mais de forma unificada. Obtenha segurança real e não pague mais por assinaturas de renovação automática que você não deseja manter.
                     </p>
                     <div class="d-flex gap-3 justify-content-center mt-4">
-                        <a href="{{ route('register') }}" class="btn btn-custom-primary text-decoration-none">
-                            <i class="bi bi-rocket-takeoff me-2"></i>Começar Gratuitamente
-                        </a>
+                        @if(Route::has('register'))
+                            <a href="{{ route('register') }}" class="btn btn-custom-primary text-decoration-none">
+                                <i class="bi bi-rocket-takeoff me-2"></i>Começar Gratuitamente
+                            </a>
+                        @else
+                            <button type="button" class="btn btn-custom-primary text-decoration-none" data-bs-toggle="modal" data-bs-target="#accessRequestModal">
+                                <i class="bi bi-rocket-takeoff me-2"></i>Solicitar Teste
+                            </button>
+                        @endif
                         <a href="#features" class="btn btn-custom-secondary text-decoration-none">
                             Descobrir Funcionalidades
                         </a>
@@ -379,20 +391,7 @@
                 <p class="text-secondary lead">O futuro do gerenciamento é inteligente. Confira o que estamos preparando para você:</p>
             </div>
 
-            <div class="row g-4 row-cols-1 row-cols-md-3 row-cols-lg-5">
-                <div class="col">
-                    <div class="p-4 bg-dark bg-opacity-50 rounded-4 border border-secondary border-opacity-25 h-100 position-relative overflow-hidden card-hover-effect">
-                        <div class="position-absolute top-0 end-0 p-3">
-                            <span class="badge bg-info text-dark small">80%</span>
-                        </div>
-                        <i class="bi bi-phone text-success fs-2 mb-3 d-block"></i>
-                        <h5 class="fw-bold text-white small">Adaptação Mobile</h5>
-                        <p class="text-secondary mb-2" style="font-size: 0.75rem;">Refinando a experiência para todos os tamanhos de tela.</p>
-                        <div class="progress" style="height: 4px; background: rgba(255,255,255,0.1);">
-                            <div class="progress-bar bg-success" role="progressbar" style="width: 80%"></div>
-                        </div>
-                    </div>
-                </div>
+            <div class="row g-4 row-cols-1 row-cols-md-2 row-cols-lg-4 justify-content-center">
                 <div class="col">
                     <div class="p-4 bg-dark bg-opacity-50 rounded-4 border border-secondary border-opacity-25 h-100 position-relative overflow-hidden card-hover-effect">
                         <div class="position-absolute top-0 end-0 p-3">
@@ -459,9 +458,15 @@
                         <p class="mb-0 fw-semibold text-white">"Facilitamos o gerenciamento para que você tome as decisões. O controle é soberano."</p>
                     </div>
                     <div class="mt-5">
-                        <a href="{{ route('register') }}" class="btn btn-custom-primary text-decoration-none">
-                            <i class="bi bi-rocket-takeoff me-2"></i>Entrar Gratuitamente Agora
-                        </a>
+                        @if(Route::has('register'))
+                            <a href="{{ route('register') }}" class="btn btn-custom-primary text-decoration-none">
+                                <i class="bi bi-rocket-takeoff me-2"></i>Entrar Gratuitamente Agora
+                            </a>
+                        @else
+                            <button type="button" class="btn btn-custom-primary text-decoration-none" data-bs-toggle="modal" data-bs-target="#accessRequestModal">
+                                <i class="bi bi-rocket-takeoff me-2"></i>Solicitar Teste Agora
+                            </button>
+                        @endif
                     </div>
                 </div>
                 <div class="col-lg-6">
@@ -592,5 +597,21 @@
         }
     </style>
 
+    <!-- Access Request Modal -->
+    <div class="modal fade" id="accessRequestModal" tabindex="-1" aria-labelledby="accessRequestModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content bg-dark border-secondary border-opacity-25 rounded-4 shadow-lg backdrop-blur" style="background: rgba(11, 15, 25, 0.9) !important;">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title text-white fw-bold" id="accessRequestModalLabel">Solicitar Acesso ao Teste</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <livewire:access-request-form />
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{-- @livewireScripts removido: inject_assets=true já injeta automaticamente --}}
 </body>
 </html>

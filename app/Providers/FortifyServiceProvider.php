@@ -4,12 +4,21 @@ namespace App\Providers;
 
 use App\Actions\Fortify\CreateNewUser;
 use App\Actions\Fortify\ResetUserPassword;
+use App\Http\Responses\Fortify\LoginResponse;
+use App\Http\Responses\Fortify\PasswordConfirmedResponse;
+use App\Models\User;
+use App\Services\PasswordSecurityService;
+use Illuminate\Auth\Events\Failed;
+use Illuminate\Auth\Events\Lockout;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+use Laravel\Fortify\Contracts\LoginResponse as LoginResponseContract;
+use Laravel\Fortify\Contracts\PasswordConfirmedResponse as PasswordConfirmedResponseContract;
 use Laravel\Fortify\Fortify;
 
 class FortifyServiceProvider extends ServiceProvider
@@ -19,7 +28,8 @@ class FortifyServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->singleton(LoginResponseContract::class, LoginResponse::class);
+        $this->app->singleton(PasswordConfirmedResponseContract::class, PasswordConfirmedResponse::class);
     }
 
     /**
@@ -40,14 +50,27 @@ class FortifyServiceProvider extends ServiceProvider
         Fortify::resetUserPasswordsUsing(ResetUserPassword::class);
         Fortify::createUsersUsing(CreateNewUser::class);
 
+        Fortify::confirmPasswordsUsing(function ($user, string $password) {
+            return PasswordSecurityService::checkPassword($password, $user->password);
+        });
+
         Fortify::authenticateUsing(function (Request $request) {
-            $user = \App\Models\User::where('email', $request->email)->first();
+            $email = strtolower(trim($request->email));
+            $user = User::where('email', $email)->first();
 
-            if (!$user || !\App\Services\PasswordSecurityService::checkPassword($request->password, $user->password)) {
+            if (! $user) {
+                \Illuminate\Support\Facades\Log::warning("Login falhou: Usuário $email não encontrado.");
+                throw ValidationException::withMessages([
+                    'email' => [trans('auth.failed')],
+                ]);
+            }
+
+            if (! PasswordSecurityService::checkPassword($request->password, $user->password)) {
+                \Illuminate\Support\Facades\Log::warning("Login falhou: Senha incorreta para $email.");
                 // Dispara o evento de falha manualmente para que os logs capturem
-                event(new \Illuminate\Auth\Events\Failed('web', $user, $request->only('email', 'password')));
+                event(new Failed('web', $user, $request->only('email', 'password')));
 
-                throw \Illuminate\Validation\ValidationException::withMessages([
+                throw ValidationException::withMessages([
                     'email' => [trans('auth.failed')],
                 ]);
             }
@@ -90,14 +113,16 @@ class FortifyServiceProvider extends ServiceProvider
             $ip = $request->ip();
             $throttleKey = Str::transliterate($email.'|'.$ip);
 
-            return Limit::perMinutes(60, 5)->by($throttleKey)->response(function (Request $request, $limit) use ($throttleKey, $email, $ip) {
-                event(new \Illuminate\Auth\Events\Lockout($request));
+            return Limit::perMinutes(60, 5)->by($throttleKey)->response(function (Request $request, $limit) use ($throttleKey) {
+                event(new Lockout($request));
 
                 $seconds = 0;
-                
+
                 // 1. Tenta via RateLimiter padrão
                 $seconds = RateLimiter::availableIn($throttleKey);
-                if ($seconds <= 0) $seconds = RateLimiter::availableIn('login:'.$throttleKey);
+                if ($seconds <= 0) {
+                    $seconds = RateLimiter::availableIn('login:'.$throttleKey);
+                }
 
                 // 2. Fallback Nuclear: Varredura física do cache (necessário em alguns ambientes Windows/Laravel 13)
                 if ($seconds <= 0) {
@@ -112,16 +137,20 @@ class FortifyServiceProvider extends ServiceProvider
                                 if ($content && strlen($content) > 10) {
                                     $val = substr($content, 10);
                                     if (strpos($val, 'i:') === 0) {
-                                        $num = (int)substr($val, 2, -1);
+                                        $num = (int) substr($val, 2, -1);
                                         // Procura por um timestamp futuro (timer)
                                         if ($num > $now && $num < $now + 7200) {
-                                            if ($num > $latestTimer) $latestTimer = $num;
+                                            if ($num > $latestTimer) {
+                                                $latestTimer = $num;
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
-                        if ($latestTimer > 0) $seconds = $latestTimer - $now;
+                        if ($latestTimer > 0) {
+                            $seconds = $latestTimer - $now;
+                        }
                     }
                 }
 
@@ -129,7 +158,7 @@ class FortifyServiceProvider extends ServiceProvider
                     $minutes = ceil($seconds / 60);
                     $message = "Muitas tentativas de login. Sua conta está bloqueada por mais {$minutes} minuto(s).";
                 } else {
-                    $message = "Muitas tentativas de login. Tente novamente em alguns minutos.";
+                    $message = 'Muitas tentativas de login. Tente novamente em alguns minutos.';
                 }
 
                 return back()->withErrors([

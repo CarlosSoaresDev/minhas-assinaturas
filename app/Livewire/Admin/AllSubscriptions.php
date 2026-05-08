@@ -42,6 +42,9 @@ class AllSubscriptions extends Component
 
     public function sortBy($field)
     {
+        $allowedFields = ['name', 'amount', 'next_billing_date', 'status', 'created_at'];
+        $field = in_array($field, $allowedFields) ? $field : 'name';
+
         if ($this->sortField === $field) {
             $this->sortDirection = $this->sortDirection === 'asc' ? 'desc' : 'asc';
         } else {
@@ -52,6 +55,9 @@ class AllSubscriptions extends Component
 
     public function render()
     {
+        $allowedFields = ['name', 'amount', 'next_billing_date', 'status', 'created_at'];
+        $this->sortField = in_array($this->sortField, $allowedFields) ? $this->sortField : 'name';
+
         $query = Subscription::with(['category'])
             ->where('name', 'like', '%' . $this->search . '%')
             ->when($this->statusFilter !== 'all', fn($q) => $q->where('status', $this->statusFilter))

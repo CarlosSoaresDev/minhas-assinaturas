@@ -10,9 +10,9 @@ Route::middleware(['auth'])->group(function () {
 });
 
 Route::middleware(['auth'])->group(function () {
-    Volt::route('settings/appearance', 'settings.⚡appearance')->name('appearance.edit');
-
     Volt::route('settings/password', 'settings.⚡password')->name('password.edit');
+});
 
+Route::middleware(['auth', 'password.confirm'])->group(function () {
     Volt::route('settings/two-factor', 'settings.⚡two-factor')->name('two-factor.edit');
 });

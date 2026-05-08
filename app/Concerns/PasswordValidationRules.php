@@ -24,6 +24,14 @@ trait PasswordValidationRules
      */
     protected function currentPasswordRules(): array
     {
-        return ['required', 'string', 'current_password'];
+        return [
+            'required',
+            'string',
+            function (string $attribute, mixed $value, \Closure $fail) {
+                if (!\App\Services\PasswordSecurityService::checkPassword($value, auth()->user()->password)) {
+                    $fail(__('A senha atual está incorreta.'));
+                }
+            }
+        ];
     }
 }

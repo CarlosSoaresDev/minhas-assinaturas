@@ -69,59 +69,41 @@ class DataManagement extends Component
         $token = auth()->user()->privacyToken?->token;
         if (!$token) return;
 
-        $path = $this->csvFile->getRealPath();
-        $data = array_map('str_getcsv', file($path));
-        
-        $importedCount = 0;
-        $header = array_shift($data);
+        try {
+            $path = $this->csvFile->getRealPath();
+            $content = file_get_contents($path);
+            $content = preg_replace('/^\xEF\xBB\xBF/', '', $content);
+            
+            $tempStream = fopen('php://temp', 'r+');
+            fwrite($tempStream, $content);
+            rewind($tempStream);
 
-        // Simple CSV assumption: Nome, Valor, Ciclo (monthly, yearly)
-        foreach ($data as $row) {
-            if (count($row) >= 2) {
-                Subscription::create([
-                    'privacy_token' => $token,
-                    'name' => $row[0],
-                    'amount' => (float) str_replace(',', '.', $row[1] ?? 0),
-                    'billing_cycle' => $row[2] ?? 'monthly',
-                    'start_date' => now(),
-                    'next_billing_date' => now()->addMonth(),
-                    'status' => 'active',
-                ]);
-                $importedCount++;
+            $firstLine = fgets($tempStream);
+            rewind($tempStream);
+            $delimiter = str_contains($firstLine, ';') ? ';' : ',';
+
+            $importedCount = 0;
+            $header = fgetcsv($tempStream, 0, $delimiter);
+            
+            $importService = app(\App\Services\SubscriptionImportService::class);
+
+            while (($row = fgetcsv($tempStream, 0, $delimiter)) !== FALSE) {
+                if (count($row) === 1 && $row[0] === null) continue;
+                
+                $result = $importService->importRow($token, $row, true);
+                if ($result['status'] === 'imported') {
+                    $importedCount++;
+                }
             }
+            fclose($tempStream);
+
+            $this->importStatus = "{$importedCount} assinaturas importadas com sucesso!";
+            app(\App\Services\CacheService::class)->invalidateUserCache($token);
+            
+            activity()->event('csv_import')->log("Usuário importou {$importedCount} assinaturas via CSV.");
+        } catch (\Exception $e) {
+            session()->flash('error', 'Erro ao importar CSV: ' . $e->getMessage());
         }
-
-        $this->importStatus = "{$importedCount} assinaturas importadas com sucesso!";
-        app(\App\Services\CacheService::class)->invalidateUserCache($token);
-        
-        activity()->event('csv_import')->log("Usuário importou {$importedCount} assinaturas via CSV.");
-    }
-
-    public function requestAccountDeletion()
-    {
-        // Fase 5: Exclusão de conta (Soft Delete)
-        $user = auth()->user();
-
-        // Evita remover o último administrador e bloquear o sistema.
-        if ($user->hasRole('admin') && User::role('admin')->count() <= 1) {
-            session()->flash('error', 'Não é possível excluir o último administrador do sistema. Crie outro administrador antes de excluir esta conta.');
-            return;
-        }
-        
-        // Dispara auditoria antes de excluir
-        activity()->event('account_deletion')->log('Usuário solicitou exclusão permanente da conta.');
-
-        // O Soft Delete já foi configurado no model.
-        // Ao invés de deletar e deslogar aqui na mão, apenas invocamos delete
-        $user->delete();
-
-        // O redirecionamento e logout real deveriam ser feitos com auth()->logout(), 
-        // mas para simplificar o livewire, redirecionamos forçadamente.
-        auth()->logout();
-        session()->invalidate();
-        session()->regenerateToken();
-
-        return redirect('/');
     }
 
     public function render()

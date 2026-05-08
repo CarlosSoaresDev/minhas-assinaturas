@@ -15,7 +15,7 @@
             </div>
         </div>
 
-        <!-- Exclusão de Conta Collapsible -->
+        <!-- Exclusão de Conta -->
         <div class="col-md-12">
             @if(session()->has('error'))
                 <div class="alert alert-danger border-0 shadow-sm mb-3" style="border-radius: 12px;">
@@ -23,32 +23,7 @@
                 </div>
             @endif
 
-            <button @click="showDelete = !showDelete" class="btn btn-outline-danger fw-bold shadow-sm d-flex justify-content-between align-items-center w-100" style="border-radius: 12px; padding: 12px 20px;">
-                <span><i class="bi bi-exclamation-triangle-fill me-2"></i> Excluir Minha Conta Permanentemente</span>
-                <i class="bi" :class="showDelete ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
-            </button>
-
-            <div x-show="showDelete" x-collapse x-cloak class="mt-3">
-                <div class="card border-danger shadow-sm">
-                    <div class="card-header border-danger text-danger py-3">
-                        <h6 class="mb-0 fw-bold"><i class="bi bi-cone-striped me-2"></i>Zona de Risco</h6>
-                    </div>
-                    <div class="card-body">
-                        <p>Ao excluir sua conta, todas as suas assinaturas, tokens de privacidade e informações serão deletadas permanentemente. Esta ação não poderá ser desfeita.</p>
-                        
-                        <div class="form-check mb-3">
-                            <input class="form-check-input border-secondary" type="checkbox" id="confirmDeleteAccount" x-data="{ checked: false }" x-model="checked" @change="$dispatch('toggle-delete-btn', checked)">
-                            <label class="form-check-label text-secondary small" for="confirmDeleteAccount">
-                                Eu entendo que esta ação é irreversível e desejo excluir minha conta permanentemente.
-                            </label>
-                        </div>
-
-                        <button wire:click="requestAccountDeletion" wire:confirm="VOCÊ TEM CERTEZA? Esta ação deletará sua conta imediatamente." class="btn btn-danger fw-bold" x-data="{ disabled: true }" @toggle-delete-btn.window="disabled = !$event.detail" x-bind:disabled="disabled">
-                            <i class="bi bi-trash-fill me-2"></i>Confirmar Exclusão
-                        </button>
-                    </div>
-                </div>
-            </div>
+            <livewire:settings.delete-user-form />
         </div>
     </div>
 </div>

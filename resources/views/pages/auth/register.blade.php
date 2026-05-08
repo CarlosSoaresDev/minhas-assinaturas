@@ -54,6 +54,9 @@
                             @error('password')
                                 <div class="invalid-feedback">{{ $message }}</div>
                             @enderror
+                            <div class="form-text text-secondary x-small mt-1">
+                                <i class="bi bi-info-circle me-1"></i> Mínimo 8 caracteres, uma letra maiúscula e um símbolo.
+                            </div>
                         </div>
 
                         <!-- Confirmar Senha -->
@@ -80,7 +83,7 @@
 
                         <div class="d-grid mb-4">
                             <button type="submit" class="btn btn-primary fw-bold py-2 shadow-sm" style="border-radius: 50px;">
-                                <i class="bi bi-person-plus me-2"></i>Registrar Nova Conta
+                                <i class="bi bi-person-plus me-2"></i>Criar Conta
                             </button>
                         </div>
 

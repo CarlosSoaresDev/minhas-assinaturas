@@ -64,17 +64,26 @@
                             </button>
                         </div>
 
-                        <div class="d-grid mb-4">
-                            <a href="{{ route('auth.google.redirect') }}" class="btn btn-outline-light fw-bold py-2" style="border-radius: 50px;">
-                                <i class="bi bi-google me-2"></i>Entrar com Google
-                            </a>
-                        </div>
+                        @if(config('services.google.enabled'))
+                            <div class="d-grid mb-4">
+                                <a href="{{ route('auth.google.redirect') }}" class="btn btn-outline-light fw-bold py-2" style="border-radius: 50px;">
+                                    <i class="bi bi-google me-2"></i>Entrar com Google
+                                </a>
+                            </div>
+                        @endif
 
 
-                        <div class="text-center">
-                            <span class="text-secondary small">Não tem uma conta?</span>
-                            <a href="{{ route('register') }}" class="text-primary fw-bold text-decoration-none small ms-1">Criar Agora</a>
-                        </div>
+                        @if(Route::has('register'))
+                            <div class="text-center">
+                                <span class="text-secondary small">Não tem uma conta?</span>
+                                <a href="{{ route('register') }}" class="text-primary fw-bold text-decoration-none small ms-1">Criar Agora</a>
+                            </div>
+                        @else
+                            <div class="text-center">
+                                <p class="text-secondary small mb-0">O registro público está temporariamente desativado.</p>
+                                <a href="{{ route('home') }}" class="text-primary fw-bold text-decoration-none small">Voltar ao Início</a>
+                            </div>
+                        @endif
                     </form>
                 </div>
             </div>

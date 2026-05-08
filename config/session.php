@@ -18,7 +18,24 @@ return [
     |
     */
 
-    'driver' => env('SESSION_DRIVER', 'database'),
+    'driver' => (function() {
+        $default = env('SESSION_DRIVER', 'database');
+        
+        // Se não for 'database', usa o que estiver no .env diretamente
+        if ($default !== 'database') {
+            return $default;
+        }
+
+        // Se for 'database', verifica se há conexão antes de confirmar
+        try {
+            // Tenta obter a conexão PDO. Se o banco não existir, cairá no catch.
+            \Illuminate\Support\Facades\DB::connection()->getPdo();
+            return 'database';
+        } catch (\Throwable $e) {
+            // Caso o banco esteja offline ou inexistente, faz o failover para arquivo
+            return 'file';
+        }
+    })(),
 
     /*
     |--------------------------------------------------------------------------

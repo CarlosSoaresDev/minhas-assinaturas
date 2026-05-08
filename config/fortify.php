@@ -73,7 +73,7 @@ return [
     |
     */
 
-    'home' => '/dashboard',
+    'home' => 'dashboard',
 
     /*
     |--------------------------------------------------------------------------
@@ -143,15 +143,15 @@ return [
     |
     */
 
-    'features' => [
-        Features::registration(),
-        Features::resetPasswords(),
+    'features' => array_filter([
+        config('app.public_registration', true) ? Features::registration() : null,
+        // Features::resetPasswords(),
         // Features::emailVerification(),
         Features::twoFactorAuthentication([
             'confirm' => true,
             'confirmPassword' => true,
             // 'window' => 0
         ]),
-    ],
+    ]),
 
 ];

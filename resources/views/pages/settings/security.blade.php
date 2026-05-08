@@ -7,82 +7,82 @@ use Illuminate\Validation\ValidationException;
 use Laravel\Fortify\Actions\DisableTwoFactorAuthentication;
 use Laravel\Fortify\Features;
 use Laravel\Fortify\Fortify;
-use Livewire\Attributes\On;
-use Livewire\Attributes\Layout;
-use Livewire\Attributes\Title;
-use Livewire\Component;
+use function Livewire\Volt\{state, mount, on, layout, title};
 
-new #[Title('Segurança')] #[Layout('pages::settings.layout', ['heading' => 'Segurança', 'subheading' => 'Gerencie sua senha e autenticação de dois fatores'])] class extends Component {
-    use PasswordValidationRules;
+layout('pages::settings.layout');
+title('Segurança');
 
-    public string $current_password = '';
-    public string $password = '';
-    public string $password_confirmation = '';
+state([
+    'current_password' => '',
+    'password' => '',
+    'password_confirmation' => '',
+    'needsCurrentPassword' => true,
+    'canManageTwoFactor' => false,
+    'twoFactorEnabled' => false,
+    'requiresConfirmation' => false,
+]);
 
-    public bool $canManageTwoFactor;
-    public bool $twoFactorEnabled;
-    public bool $requiresConfirmation;
+mount(function (DisableTwoFactorAuthentication $disableTwoFactorAuthentication) {
+    $user = auth()->user();
+    $this->needsCurrentPassword = ! (bool) ($user->created_via_google ?? false);
+    $this->canManageTwoFactor = Features::canManageTwoFactorAuthentication();
 
-    public function requiresCurrentPassword(): bool
-    {
-        return ! (bool) Auth::user()?->created_via_google;
+    if ($this->canManageTwoFactor) {
+        if (Fortify::confirmsTwoFactorAuthentication() && is_null($user->two_factor_confirmed_at)) {
+            $disableTwoFactorAuthentication($user);
+        }
+
+        $this->twoFactorEnabled = $user->hasEnabledTwoFactorAuthentication();
+        $this->requiresConfirmation = Features::optionEnabled(Features::twoFactorAuthentication(), 'confirm');
     }
+});
 
-    public function mount(DisableTwoFactorAuthentication $disableTwoFactorAuthentication): void
-    {
-        $this->canManageTwoFactor = Features::canManageTwoFactorAuthentication();
+$updatePassword = function () {
+    $rules = [
+        'password' => ['required', 'string', \Illuminate\Validation\Rules\Password::default(), 'confirmed'],
+    ];
 
-        if ($this->canManageTwoFactor) {
-            if (Fortify::confirmsTwoFactorAuthentication() && is_null(auth()->user()->two_factor_confirmed_at)) {
-                $disableTwoFactorAuthentication(auth()->user());
+    if ($this->needsCurrentPassword) {
+        $rules['current_password'] = [
+            'required',
+            'string',
+            function (string $attribute, mixed $value, \Closure $fail) {
+                if (!\App\Services\PasswordSecurityService::checkPassword($value, auth()->user()->password)) {
+                    $fail(__('A senha atual está incorreta.'));
+                }
             }
-
-            $this->twoFactorEnabled = auth()->user()->hasEnabledTwoFactorAuthentication();
-            $this->requiresConfirmation = Features::optionEnabled(Features::twoFactorAuthentication(), 'confirm');
-        }
-    }
-
-    public function updatePassword(): void
-    {
-        $rules = [
-            'password' => $this->passwordRules(),
         ];
+    }
 
-        if ($this->requiresCurrentPassword()) {
-            $rules['current_password'] = $this->currentPasswordRules();
-        }
-
-        try {
-            $validated = $this->validate($rules);
-        } catch (ValidationException $e) {
-            $this->reset('current_password', 'password', 'password_confirmation');
-            throw $e;
-        }
-
-        $user = Auth::user();
-
-        $user->update([
-            'password' => PasswordSecurityService::hashPassword($validated['password']),
-            // Após definir senha local, passamos a exigir senha atual em próximas trocas.
-            'created_via_google' => false,
-        ]);
-
+    try {
+        $validated = $this->validate($rules);
+    } catch (ValidationException $e) {
         $this->reset('current_password', 'password', 'password_confirmation');
-        session()->flash('password_success', 'Senha atualizada com sucesso!');
+        throw $e;
     }
 
-    #[On('two-factor-enabled')]
-    public function onTwoFactorEnabled(): void
-    {
-        $this->twoFactorEnabled = true;
-    }
+    $user = Auth::user();
 
-    public function disable(DisableTwoFactorAuthentication $disableTwoFactorAuthentication): void
-    {
-        $disableTwoFactorAuthentication(auth()->user());
-        $this->twoFactorEnabled = false;
-    }
-}; ?>
+    $user->update([
+        'password' => PasswordSecurityService::hashPassword($validated['password']),
+        'created_via_google' => false,
+    ]);
+
+    $this->reset('current_password', 'password', 'password_confirmation');
+    $this->needsCurrentPassword = true; // Agora tem senha local
+    session()->flash('password_success', 'Senha atualizada com sucesso!');
+};
+
+on(['two-factor-enabled' => function () {
+    $this->twoFactorEnabled = true;
+}]);
+
+$disable = function (DisableTwoFactorAuthentication $disableTwoFactorAuthentication) {
+    $disableTwoFactorAuthentication(auth()->user());
+    $this->twoFactorEnabled = false;
+};
+
+?>
 
 <div>
     @if (session('password_success'))
@@ -95,14 +95,14 @@ new #[Title('Segurança')] #[Layout('pages::settings.layout', ['heading' => 'Seg
     <!-- Alterar Senha -->
     <h5 class="fw-bold mb-3"><i class="bi bi-key me-2 text-primary"></i>Alterar Senha</h5>
 
-    @if (! $this->requiresCurrentPassword())
+    @if (! $needsCurrentPassword)
         <div class="alert alert-info border-0 mb-3" role="alert">
             Sua conta foi criada com Google. Defina uma senha para também poder entrar com e-mail e senha.
         </div>
     @endif
 
     <form wire:submit="updatePassword">
-        @if ($this->requiresCurrentPassword())
+        @if ($needsCurrentPassword)
             <div class="mb-3">
                 <label for="current_password" class="form-label text-light fw-semibold">Senha Atual</label>
                 <input wire:model="current_password" type="password" class="form-control bg-dark text-white border-secondary @error('current_password') is-invalid @enderror" id="current_password" required style="border-radius: 10px; padding: 10px 15px;">
@@ -146,7 +146,7 @@ new #[Title('Segurança')] #[Layout('pages::settings.layout', ['heading' => 'Seg
             </button>
 
             <div class="mt-3">
-                <livewire:pages::settings.two-factor.recovery-codes :$requiresConfirmation />
+                <livewire:settings.⚡two-factor.⚡recovery-codes :$requiresConfirmation />
             </div>
         @else
             <p class="text-secondary small mb-3">
@@ -157,7 +157,7 @@ new #[Title('Segurança')] #[Layout('pages::settings.layout', ['heading' => 'Seg
                 <i class="bi bi-shield-check me-1"></i> Ativar 2FA
             </button>
 
-            <livewire:pages::settings.two-factor-setup-modal :requires-confirmation="$requiresConfirmation" />
+            <livewire:settings.⚡two-factor-setup-modal :requires-confirmation="$requiresConfirmation" />
         @endif
     @endif
 </div>

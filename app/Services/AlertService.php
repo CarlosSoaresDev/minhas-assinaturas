@@ -39,11 +39,11 @@ class AlertService
                 'days_before' => $daysBefore,
             ],
             [
-                'id' => (string) \Illuminate\Support\Str::uuid(),
-                'privacy_token' => $subscription->privacy_token,
+                'scheduled_at' => now(),
                 'sent_at' => now(),
+                'status' => 'sent',
                 'updated_at' => now(),
-                'created_at' => \DB::raw('COALESCE(created_at, NOW())')
+                'created_at' => now(),
             ]
         );
     }

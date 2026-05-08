@@ -1,4 +1,198 @@
 <div>
+    <!-- Modal de Importação -->
+    @if($showImportModal)
+        <div wire:key="import-modal-overlay"
+             id="import-modal-overlay"
+             style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 99999; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(10px);">
+            <div wire:key="import-modal-box"
+                 style="background: #1a1d21; width: 450px; max-width: 90%; border-radius: 12px; border: 1px solid #333; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.5);">
+                <div style="padding: 20px; border-bottom: 1px solid #333; background: #222;">
+                    <h5 style="margin: 0; color: #fff; font-weight: bold;">Confirmar Importação</h5>
+                </div>
+                <div style="padding: 30px;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+                        <span style="color: #888;">Registros encontrados:</span>
+                        <span style="color: #fff; font-weight: bold;">{{ $importSummary['total'] }}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+                        <span style="color: #888;">Novas assinaturas:</span>
+                        <span style="color: #28a745; font-weight: bold;">{{ $importSummary['new'] }}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 25px;">
+                        <span style="color: #888;">Duplicatas:</span>
+                        <span style="color: #ffc107; font-weight: bold;">{{ $importSummary['duplicates'] }}</span>
+                    </div>
+
+                    <div style="background: #222; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
+                        <label style="display: flex; align-items: center; cursor: pointer; color: #fff; margin: 0;">
+                            <input type="checkbox" wire:model="ignoreDuplicates" style="width: 18px; height: 18px; margin-right: 12px;">
+                            <span>Ignorar duplicados</span>
+                        </label>
+                    </div>
+                </div>
+                <div style="padding: 20px; background: #222; border-top: 1px solid #333; display: flex; justify-content: flex-end; gap: 12px;">
+                    <button wire:key="btn-cancel-import"
+                            type="button"
+                            id="btn-cancel-import"
+                            onclick="__livewireCallImport('cancelImport')"
+                            style="background: #333; color: #fff; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 500;">
+                        Cancelar
+                    </button>
+                    <button wire:key="btn-confirm-import"
+                            type="button"
+                            id="btn-confirm-import"
+                            onclick="__livewireCallImport('confirmImport')"
+                            style="background: #28a745; color: #fff; border: none; padding: 10px 25px; border-radius: 6px; cursor: pointer; font-weight: bold;">
+                        <span wire:loading wire:target="confirmImport" class="spinner-border spinner-border-sm" style="margin-right: 8px;"></span>
+                        <span wire:loading.remove wire:target="confirmImport">Importar Agora</span>
+                        <span wire:loading wire:target="confirmImport">Importando...</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- Script sempre carregado: fora do @if para não depender do morph do Livewire --}}
+    <script>
+        function __livewireCallImport(method) {
+            var overlay = document.getElementById('import-modal-overlay');
+            if (!overlay) return;
+            var el = overlay.parentElement;
+            while (el && !el.hasAttribute('wire:id')) { el = el.parentElement; }
+            if (el) {
+                var comp = Livewire.find(el.getAttribute('wire:id'));
+                if (comp) { comp.call(method); return; }
+            }
+            var all = Livewire.all ? Livewire.all() : [];
+            for (var i = 0; i < all.length; i++) {
+                try { all[i].call(method); return; } catch(e) {}
+            }
+        }
+    </script>
+
+    <script>
+        (function () {
+            if (window.__csvUploadDebugInstalled) return;
+            window.__csvUploadDebugInstalled = true;
+            window.__csvUploadInProgress = false;
+            window.__csvLastLivewireUploadHttp = null;
+
+            function showCsvUploadDebug(message) {
+                var box = document.getElementById('csv_upload_debug');
+                if (!box) return;
+                box.textContent = message;
+                box.classList.remove('d-none');
+                console.error('[CSV upload debug]', message);
+            }
+
+            function clearCsvUploadDebug() {
+                var box = document.getElementById('csv_upload_debug');
+                if (!box) return;
+                box.textContent = '';
+                box.classList.add('d-none');
+            }
+
+            function compactBody(body) {
+                if (!body) return '(resposta vazia)';
+                return String(body).replace(/\s+/g, ' ').trim().slice(0, 3000);
+            }
+
+            function isLivewireUrl(url) {
+                return String(url || '').indexOf('livewire') !== -1;
+            }
+
+            function bindCsvInputDebug() {
+                var input = document.getElementById('csv_input');
+                if (!input || input.dataset.debugBound === '1') return;
+                input.dataset.debugBound = '1';
+
+                input.addEventListener('change', function () {
+                    window.__csvUploadInProgress = true;
+                    clearCsvUploadDebug();
+                });
+
+                input.addEventListener('livewire-upload-error', function (event) {
+                    var detail = event.detail ? JSON.stringify(event.detail) : '(sem detalhe no evento)';
+                    var http = window.__csvLastLivewireUploadHttp;
+                    var httpDetail = http
+                        ? '\nUltimo HTTP capturado: ' + http.status + ' em ' + http.url + '\n' + http.body
+                        : '\nNenhum status HTTP foi capturado no navegador.';
+                    showCsvUploadDebug('Falha no upload temporario Livewire.\nEvento: ' + detail + httpDetail + '\nVeja tambem storage/logs/laravel.log no servidor.');
+                    window.__csvUploadInProgress = false;
+                });
+
+                input.addEventListener('livewire-upload-finish', function () {
+                    window.__csvUploadInProgress = false;
+                });
+            }
+
+            var originalFetch = window.fetch;
+            if (originalFetch) {
+                window.fetch = function () {
+                    var args = arguments;
+                    var url = args[0] && args[0].url ? args[0].url : args[0];
+
+                    return originalFetch.apply(this, args).then(function (response) {
+                        if (window.__csvUploadInProgress && isLivewireUrl(url) && !response.ok) {
+                            response.clone().text().then(function (body) {
+                                window.__csvLastLivewireUploadHttp = {
+                                    status: response.status,
+                                    url: String(url),
+                                    body: compactBody(body)
+                                };
+                                showCsvUploadDebug('HTTP ' + response.status + ' em ' + url + '\n' + compactBody(body));
+                            }).catch(function (error) {
+                                window.__csvLastLivewireUploadHttp = {
+                                    status: response.status,
+                                    url: String(url),
+                                    body: 'Falha lendo resposta: ' + error.message
+                                };
+                                showCsvUploadDebug('HTTP ' + response.status + ' em ' + url + '\nFalha lendo resposta: ' + error.message);
+                            });
+                        }
+
+                        return response;
+                    }).catch(function (error) {
+                        if (window.__csvUploadInProgress && isLivewireUrl(url)) {
+                            showCsvUploadDebug('Erro de rede em ' + url + '\n' + error.message);
+                        }
+
+                        throw error;
+                    });
+                };
+            }
+
+            var originalOpen = XMLHttpRequest.prototype.open;
+            var originalSend = XMLHttpRequest.prototype.send;
+
+            XMLHttpRequest.prototype.open = function (method, url) {
+                this.__csvUploadDebugUrl = url;
+                return originalOpen.apply(this, arguments);
+            };
+
+            XMLHttpRequest.prototype.send = function () {
+                this.addEventListener('loadend', function () {
+                    if (!window.__csvUploadInProgress || !isLivewireUrl(this.__csvUploadDebugUrl) || this.status < 400) {
+                        return;
+                    }
+
+                    window.__csvLastLivewireUploadHttp = {
+                        status: this.status,
+                        url: String(this.__csvUploadDebugUrl),
+                        body: compactBody(this.responseText)
+                    };
+                    showCsvUploadDebug('HTTP ' + this.status + ' em ' + this.__csvUploadDebugUrl + '\n' + compactBody(this.responseText));
+                });
+
+                return originalSend.apply(this, arguments);
+            };
+
+            document.addEventListener('DOMContentLoaded', bindCsvInputDebug);
+            document.addEventListener('livewire:navigated', bindCsvInputDebug);
+            bindCsvInputDebug();
+        })();
+    </script>
+
     <style>
         .responsive-table th, .responsive-table td {
             vertical-align: middle;
@@ -34,29 +228,44 @@
         </div>
         <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
             <div class="d-flex align-items-center gap-2">
-                <button class="btn btn-outline-info rounded-pill px-4 shadow-sm" wire:click="exportCsv">
-                    <i class="bi bi-download"></i><span>Exportar</span>
+                <button class="btn btn-outline-info rounded-pill btn-pill-responsive shadow-sm" wire:click="exportCsv">
+                    <i class="bi bi-download"></i><span class="d-none d-sm-inline">Exportar</span>
                 </button>
                 <div class="position-relative">
-                    <button class="btn btn-outline-success rounded-pill px-4 shadow-sm" onclick="document.getElementById('csv_input').click()">
-                        <i class="bi bi-file-earmark-spreadsheet"></i><span>Importar CSV</span>
+                    <button class="btn btn-outline-success rounded-pill btn-pill-responsive shadow-sm" onclick="document.getElementById('csv_input').click()">
+                        <i class="bi bi-file-earmark-spreadsheet"></i><span class="d-none d-sm-inline">Importar CSV</span>
                     </button>
-                    <input type="file" id="csv_input" class="d-none" wire:model="csvFile" accept=".csv">
+                    <input type="file" id="csv_input" class="d-none" wire:model.live="csvFile" accept=".csv">
+                    @error('csvFile') 
+                        <div class="position-absolute top-100 start-0 mt-2 text-danger small fw-bold bg-dark p-2 rounded shadow" style="z-index: 1000; width: 200px; border: 1px solid #dc3545;">
+                            <i class="bi bi-exclamation-circle me-1"></i> {{ $message }}
+                        </div> 
+                    @enderror
+                    <div id="csv_upload_debug" class="d-none position-absolute top-100 start-0 mt-2 text-warning small fw-bold bg-dark p-2 rounded shadow" style="z-index: 1000; width: min(520px, 90vw); max-height: 240px; overflow: auto; white-space: pre-wrap; border: 1px solid #ffc107;"></div>
                 </div>
                 
                 @if(count($selectedIds) > 0)
-                    <button class="btn btn-danger rounded-pill px-4 shadow-lg animate__animated animate__fadeIn" 
+                    <button class="btn btn-danger rounded-pill btn-pill-responsive shadow-lg animate__animated animate__fadeIn" 
                             onclick="confirm('Tem certeza que deseja excluir {{ count($selectedIds) }} assinaturas?') || event.stopImmediatePropagation()"
                             wire:click="deleteSelected">
-                        <i class="bi bi-trash-fill"></i><span>Excluir ({{ count($selectedIds) }})</span>
+                        <i class="bi bi-trash-fill"></i><span class="d-none d-sm-inline">Excluir ({{ count($selectedIds) }})</span>
                     </button>
                 @endif
             </div>
             
-            <button class="btn btn-custom-primary rounded-pill px-4 py-2 shadow-sm fw-bold" wire:click="openCreateModal">
+            <button class="btn btn-custom-primary rounded-pill px-4 py-2 shadow-sm fw-bold d-none d-md-flex" wire:click="openCreateModal">
                 <i class="bi bi-plus-circle"></i><span>Nova Assinatura</span>
             </button>
         </div>
+    </div>
+
+    <!-- Mobile FAB -->
+    <div class="d-md-none position-fixed" style="bottom: 30px; right: 25px; z-index: 2000;">
+        <button class="btn btn-primary rounded-circle shadow-lg d-flex align-items-center justify-content-center" 
+                style="width: 68px; height: 68px; border: 3px solid rgba(255,255,255,0.15);" 
+                wire:click="openCreateModal">
+            <i class="bi bi-plus fs-1"></i>
+        </button>
     </div>
 
     @if (session('success'))
@@ -121,7 +330,7 @@
                             </div>
                         </th>
                         <th class="py-3"><span>Categoria</span></th>
-                        <th class="py-3"><span>Início</span></th>
+                        <th class="py-3 d-none d-lg-table-cell"><span>Início</span></th>
                         <th class="py-3" style="cursor: pointer;" wire:click="sortBy('amount')">
                             <div class="d-inline-flex align-items-center">
                                 <span>Valor</span>
@@ -134,7 +343,7 @@
                                 @if($sortColumn === 'next_billing_date') <i class="bi bi-arrow-{{ $sortDirection === 'asc' ? 'up' : 'down' }} ms-1"></i> @endif
                             </div>
                         </th>
-                        <th class="py-3"><span>Renovação</span></th>
+                        <th class="py-3 d-none d-md-table-cell"><span>Renovação</span></th>
                         <th class="py-3" style="cursor: pointer;" wire:click="sortBy('status')">
                             <div class="d-inline-flex align-items-center">
                                 <span>Status</span>
@@ -177,7 +386,7 @@
                                     <span>{{ $sub->category->name ?? 'Sem categoria' }}</span>
                                 </span>
                             </td>
-                            <td class="py-3 text-secondary small" data-label="Início">
+                            <td class="py-3 d-none d-lg-table-cell" data-label="Início">
                                 {{ $sub->start_date?->format('d/m/Y') ?? '-' }}
                             </td>
                             <td class="py-3" data-label="Valor">
@@ -223,7 +432,7 @@
                                     <span class="text-secondary">-</span>
                                 @endif
                             </td>
-                            <td class="py-3" data-label="Renovação">
+                            <td class="py-3 d-none d-md-table-cell" data-label="Renovação">
                                 @if($sub->auto_renew)
                                     <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2 py-1 rounded-pill" title="Cobrança automática ligada">
                                         <i class="bi bi-arrow-repeat"></i><span>Auto</span>
@@ -249,7 +458,7 @@
                                     </span>
                                 @endif
                             </td>
-                            <td class="py-3 pe-4 text-end">
+                            <td class="py-3 pe-4 text-end" data-label="Ações">
                                 <button class="btn btn-sm btn-outline-primary rounded-circle" wire:click="openEditModal('{{ $sub->id }}')" title="Editar">
                                     <i class="bi bi-pencil"></i>
                                 </button>
@@ -260,9 +469,9 @@
                         </tr>
                     @empty
                         <tr wire:key="empty-subscriptions">
-                            <td colspan="6" class="text-center py-5 text-secondary">
+                            <td colspan="9" class="text-center py-5 text-secondary">
                                 <div class="mb-3">
-                                    <div class="d-inline-flex align-items-center justify-content-center bg-body-tertiary border rounded-circle" style="width: 80px; height: 80px;">
+                                    <div class="d-inline-flex align-items-center justify-content-center bg-body-tertiary border rounded-circle" style="width: 68px; height: 68px;">
                                         <i class="bi bi-inbox fs-1 text-secondary"></i>
                                     </div>
                                 </div>
@@ -314,8 +523,8 @@
 
     <!-- Form Modal -->
     @if($showFormModal)
-        <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="background: rgba(0, 0, 0, 0.7); z-index: 1050; backdrop-filter: blur(4px);">
-            <div class="card shadow-lg" style="width: min(700px, 95vw); max-height: 90vh; overflow-y: auto;">
+        <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center px-2" style="background: rgba(0, 0, 0, 0.8); z-index: 1050; backdrop-filter: blur(4px); box-sizing: border-box;">
+            <div class="card shadow-lg border-0" style="width: 100%; max-width: 650px; max-height: 90vh; overflow-y: auto; border-radius: 20px;">
                 <div class="card-header d-flex justify-content-between align-items-center py-3">
                     <h5 class="mb-0 fw-bold">{{ $editingId ? 'Editar Assinatura' : 'Nova Assinatura' }}</h5>
                     <button type="button" class="btn-close" wire:click="closeFormModal"></button>
@@ -523,44 +732,6 @@
                     <button type="button" class="btn btn-danger rounded-pill px-4 fw-bold" wire:click="deleteSubscription">
                         <i class="bi bi-trash-fill me-1"></i> Excluir Permanentemente
                     </button>
-                </div>
-            </div>
-        </div>
-    @endif
-
-    @if($showImportModal)
-        <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="background: rgba(0, 0, 0, 0.7); z-index: 1060;">
-            <div class="card shadow-lg" style="width: min(500px, 92vw);">
-                <div class="card-header border-secondary">
-                    <h5 class="mb-0"><i class="bi bi-file-earmark-spreadsheet me-2"></i>Confirmar Importação</h5>
-                </div>
-                <div class="card-body">
-                    <p class="text-secondary mb-4">Analisamos seu arquivo e encontramos o seguinte:</p>
-                    
-                    <div class="d-flex justify-content-between mb-2">
-                        <span>Total de registros:</span>
-                        <span class="fw-bold text-white">{{ $importSummary['total'] }}</span>
-                    </div>
-                    <div class="d-flex justify-content-between mb-2">
-                        <span>Assinaturas novas:</span>
-                        <span class="fw-bold text-success">{{ $importSummary['new'] }}</span>
-                    </div>
-                    <div class="d-flex justify-content-between mb-4">
-                        <span>Duplicatas detectadas:</span>
-                        <span class="fw-bold text-warning">{{ $importSummary['duplicates'] }}</span>
-                    </div>
-
-                    <hr class="border-secondary">
-
-                    <div class="form-check form-switch mt-3">
-                        <input class="form-check-input" type="checkbox" role="switch" id="ignoreDupModal" wire:model.live="ignoreDuplicates">
-                        <label class="form-check-label text-light" for="ignoreDupModal">Ignorar duplicados (não importar o que já existe)</label>
-                    </div>
-                    <p class="small text-secondary mt-1">Se desmarcado, o sistema criará cópias das assinaturas já existentes.</p>
-                </div>
-                <div class="card-footer border-secondary d-flex justify-content-end gap-2">
-                    <button type="button" class="btn btn-outline-secondary" wire:click="cancelImport">Cancelar</button>
-                    <button type="button" class="btn btn-success px-4" wire:click="confirmImport">Importar Agora</button>
                 </div>
             </div>
         </div>

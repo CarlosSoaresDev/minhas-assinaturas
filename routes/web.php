@@ -18,9 +18,18 @@ Route::get('/privacidade', function () {
 Route::get('/auth/google/redirect', [SocialiteController::class, 'redirectToGoogle'])->name('auth.google.redirect');
 Route::get('/auth/google/callback', [SocialiteController::class, 'handleGoogleCallback'])->name('auth.google.callback');
 
-Route::middleware(['auth'])->group(function () {
+Route::middleware([
+    'auth',
+    \App\Http\Middleware\EnsurePrivacyToken::class,
+    \App\Http\Middleware\EnsureLgpdConsent::class,
+    \App\Http\Middleware\VerifySessionFingerprint::class,
+])->group(function () {
     // Dashboard (Usando a View original como na sua imagem)
     Route::view('dashboard', 'dashboard')->name('dashboard');
+
+    //Route::get('dashboard', function () {
+    //    \Illuminate\Support\Benchmark::dd(fn () => (string) view('dashboard')->render());
+    //})->name('dashboard');
 
     Route::middleware(['admin'])->group(function () {
         Route::view('/usuarios', 'pages.admin.users')->name('admin.users.index');
@@ -32,6 +41,13 @@ Route::middleware(['auth'])->group(function () {
 
     // Subscriptions (Privacy Scope Protected)
     Route::get('/subscriptions', \App\Livewire\Subscriptions\Index::class)->name('front.subscriptions.index');
+
+    // Admin Mode Toggle (Fallback tradicional para evitar problemas de AJAX em subdiretórios)
+    Route::get('/admin-mode/toggle', function () {
+        $current = session('admin_mode', true);
+        session(['admin_mode' => !$current]);
+        return redirect()->back();
+    })->name('admin.mode.toggle');
 });
 
 require __DIR__.'/settings.php';

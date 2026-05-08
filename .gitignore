@@ -8,6 +8,7 @@
 .env
 .env.backup
 .env.production
+.env.prod
 .phpactor.json
 .phpunit.result.cache
 Homestead.json
@@ -32,8 +33,19 @@ yarn-error.log
 
 # Projeto Custom
 ROADMAP_PROXIMOS_PASSOS.md
-.github/
+.github/copilot-instructions.md
 *.log
 *.txt
 *.csv
+exemplo_importacao_assinaturas.csv
 /storage/debug
+/storage/app/access_requests.json
+database_server_setup.sql
+
+# Agents & AI Tools
+/.agents
+/.continue
+/scratch
+AGENTS.md
+GEMINI.md
+skills-lock.json

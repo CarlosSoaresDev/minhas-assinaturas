@@ -8,6 +8,13 @@ export default defineConfig({
             refresh: true,
         }),
     ],
+    // Alpine.js é gerenciado pelo Livewire 4 internamente.
+    // Excluí-lo do bundle evita instâncias duplicadas que quebram wire:click.
+    build: {
+        rollupOptions: {
+            external: ['alpinejs'],
+        },
+    },
     server: {
         cors: true,
         watch: {

@@ -1,0 +1,10 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # URLs publicas nunca devem expor /public; isso precisa ser apenas rewrite interno.
+    RewriteRule ^public/?(.*)$ $1 [R=301,L,NE]
+
+    # Quando o projeto Laravel fica num subdiretorio (hosting compartilhada),
+    # a raiz do projeto precisa reescrever internamente para /public.
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>

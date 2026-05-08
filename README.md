@@ -82,11 +82,16 @@ Acesse a aplicação em: `http://localhost:8000`
 
 ## 🧪 Testes
 
-O projeto utiliza **TDD (Test Driven Development)** rigoroso. Para executar a suíte de testes:
+O projeto utiliza **TDD (Test Driven Development)** rigoroso. Atualmente, a suíte conta com 142 testes validados.
 
 ```bash
 php artisan test
 ```
+
+## ⚡ Performance
+
+- **Blaze Engine:** Implementado folding de componentes para renderização ultra-rápida.
+- **Navegação SPA:** `wire:navigate` ativo em todas as rotas principais.
 
 ## 📄 Licença
 

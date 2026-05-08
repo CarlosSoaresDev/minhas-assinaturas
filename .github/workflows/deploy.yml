@@ -1,0 +1,98 @@
+name: Deploy Hostinger FTP
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  web-deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do Código
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+
+      - name: Instalar Dependências PHP (com dev para testes)
+        run: composer install --prefer-dist --no-progress
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Build Vite Assets
+        run: |
+          npm install
+          ASSET_URL=/projetos/minhas-assinaturas npm run build
+
+      - name: Executar Testes
+        run: |
+          echo "APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" > .env
+          echo "APP_ENV=testing" >> .env
+          echo "DB_CONNECTION=sqlite" >> .env
+          echo "DB_DATABASE=:memory:" >> .env
+          echo "SESSION_DRIVER=array" >> .env
+          echo "QUEUE_CONNECTION=sync" >> .env
+          echo "CACHE_STORE=array" >> .env
+          echo "APP_PUBLIC_REGISTRATION=true" >> .env
+          php artisan test
+          rm .env
+
+      - name: Reinstalar Dependências sem Dev (Produção)
+        run: composer install --optimize-autoloader --no-dev
+
+      - name: Sincronizar Arquivos via FTP (sem vendor)
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          server-dir: ${{ secrets.FTP_SERVER_DIR }}
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            **/vendor/**
+            **/tests/**
+            **/Tests/**
+            **/test/**
+            **/storage/**
+            **/bootstrap/cache/**
+            **/.github/**
+            **/phpunit*
+            **/.env*
+            **/README*
+            **/CHANGELOG*
+            **/CONTRIBUTING*
+            **/scratch/**
+            AGENTS.md
+            GEMINI.md
+            skills-lock.json
+            database_server_setup.sql
+            0_Deploy.txt
+
+      - name: Instalar Dependências e Otimizar via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          password: ${{ secrets.SSH_PASSWORD }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            cd ${{ secrets.SSH_PROJECT_PATH }}
+            if grep -q '^APP_DEBUG=' .env; then sed -i 's/^APP_DEBUG=.*/APP_DEBUG=true/' .env; else echo 'APP_DEBUG=true' >> .env; fi
+            composer install --optimize-autoloader --no-dev --no-interaction
+            php artisan cache:clear
+            php artisan view:clear
+            php artisan route:clear
+            php artisan config:clear
+            mkdir -p storage/app/private/livewire-tmp storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs
+            chmod -R 775 storage bootstrap/cache
+            php artisan config:cache
+            php artisan route:cache
