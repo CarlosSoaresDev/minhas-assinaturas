@@ -11,14 +11,25 @@ class LivewireUploadUrlGenerator extends GenerateSignedUploadUrl
     public function forLocal()
     {
         $expires = now()->addMinutes(FileUploadConfiguration::maxUploadTime())->getTimestamp();
-        $url = $this->uploadUrl().'?expires='.$expires;
+        $publicUrl = $this->publicUploadUrl().'?expires='.$expires;
+        $signatureUrl = $this->signatureUploadUrl().'?expires='.$expires;
 
-        return $url.'&signature='.$this->signature($url);
+        return $publicUrl.'&signature='.$this->signature($signatureUrl);
     }
 
-    private function uploadUrl(): string
+    private function publicUploadUrl(): string
     {
         return rtrim((string) config('app.url'), '/').EndpointResolver::uploadPath();
+    }
+
+    private function signatureUploadUrl(): string
+    {
+        $appUrl = (string) config('app.url');
+        $scheme = parse_url($appUrl, PHP_URL_SCHEME) ?: 'https';
+        $host = parse_url($appUrl, PHP_URL_HOST) ?: 'localhost';
+        $port = parse_url($appUrl, PHP_URL_PORT);
+
+        return $scheme.'://'.$host.($port ? ':'.$port : '').EndpointResolver::uploadPath();
     }
 
     private function signature(string $url): string
