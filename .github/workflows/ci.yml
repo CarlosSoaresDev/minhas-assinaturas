@@ -50,6 +50,8 @@ jobs:
           echo "APP_LOCALE=pt_BR" >> .env
           echo "APP_FALLBACK_LOCALE=pt_BR" >> .env
           echo "APP_TIMEZONE=America/Sao_Paulo" >> .env
+          echo "APP_PUBLIC_REGISTRATION=true" >> .env
+          echo "GOOGLE_OAUTH_ENABLED=false" >> .env
 
       - name: Clear config cache
         run: php artisan config:clear --ansi
